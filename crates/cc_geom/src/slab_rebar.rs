@@ -28,6 +28,8 @@ pub(crate) struct Slab {
     pub circles: Vec<(DVec2, f64)>,
     /// Bottom and top of its structure.
     pub z: (f64, f64),
+    /// Origin and gradient of the slab's structural plane.
+    pub plane: (DVec2, DVec2),
 }
 
 impl Slab {
@@ -39,6 +41,10 @@ impl Slab {
             ElementKind::Floor(f) => {
                 // Bars lie in the structure: under the finishes, over the ceiling layers.
                 let (above, below) = ty.core_range();
+                let (origin, gradient) = match f.slope {
+                    Some(slope) => slope.plane(&f.boundary)?,
+                    None => (DVec2::ZERO, DVec2::ZERO),
+                };
                 let top = level + f.height_offset;
                 let circles = f.sketch.iter().flat_map(|s| &s.curves).filter_map(circle_of).collect();
                 Some(Slab {
@@ -46,6 +52,7 @@ impl Slab {
                     holes: f.all_openings().filter(|o| o.len() >= 3).cloned().collect(),
                     circles,
                     z: (top - below, top - above),
+                    plane: (origin, gradient),
                 })
             }
             ElementKind::Foundation(f) => {
@@ -53,7 +60,13 @@ impl Slab {
                 let TypeData::Foundation { thickness, .. } = &ty.data else { return None };
                 let top = level + f.top_offset;
                 let circles = f.sketch.iter().flat_map(|s| &s.curves).filter_map(circle_of).collect();
-                Some(Slab { outline: polygon::ccw(boundary), holes: Vec::new(), circles, z: (top - thickness, top) })
+                Some(Slab {
+                    outline: polygon::ccw(boundary),
+                    holes: Vec::new(),
+                    circles,
+                    z: (top - thickness, top),
+                    plane: (DVec2::ZERO, DVec2::ZERO),
+                })
             }
             _ => None,
         }
@@ -64,6 +77,13 @@ impl Slab {
         let lo = self.outline.iter().fold(DVec2::INFINITY, |m, p| m.min(*p));
         let hi = self.outline.iter().fold(DVec2::NEG_INFINITY, |m, p| m.max(*p));
         (lo + hi) * 0.5
+    }
+
+    fn layer_height(&self, p: DVec2, top: bool, inset: f64) -> f64 {
+        let offset = self.plane.1.dot(p - self.plane.0);
+        let (bottom, top_z) = (self.z.0 + offset, self.z.1 + offset);
+        let middle = (bottom + top_z) * 0.5;
+        if top { (top_z - inset).max(middle) } else { (bottom + inset).min(middle) }
     }
 }
 
@@ -272,40 +292,42 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
         return Vec::new();
     }
     // The height of the layer: the cover and half a bar inside the face, an inner set a bar further.
-    let height = |top: bool, inner: bool| {
+    let height = |p: DVec2, top: bool, inner: bool| {
         let inset = r.cover + d / 2.0 + if inner { other } else { 0.0 };
-        let middle = (slab.z.0 + slab.z.1) * 0.5;
-        if top { (slab.z.1 - inset).max(middle) } else { (slab.z.0 + inset).min(middle) }
+        slab.layer_height(p, top, inset)
     };
     let mut bars: Vec<Bar> = Vec::new();
     // A straight bar from `a` to `b`, cut by the splice, with a leg at the ends on the slab's edge.
-    let straight = |bars: &mut Vec<Bar>, a: DVec2, b: DVec2, z: f64, index: usize, legs: (f64, f64)| {
-        let length = a.distance(b);
-        if length < MIN_BAR {
-            return;
-        }
-        let dir = (b - a) / length;
-        let cuts = pieces(r.splice, length, index);
-        let last = cuts.len().saturating_sub(1);
-        for (i, (from, to)) in cuts.into_iter().enumerate() {
-            if bars.len() >= MAX_BARS {
+    let straight =
+        |bars: &mut Vec<Bar>, a: DVec2, b: DVec2, z: &dyn Fn(DVec2) -> f64, index: usize, legs: (f64, f64)| {
+            let length = a.distance(b);
+            if length < MIN_BAR {
                 return;
             }
-            let mut points = Vec::with_capacity(4);
-            if i == 0 && legs.0 != 0.0 {
-                points.push((a + dir * from).extend(z + legs.0));
+            let dir = (b - a) / length;
+            let cuts = pieces(r.splice, length, index);
+            let last = cuts.len().saturating_sub(1);
+            for (i, (from, to)) in cuts.into_iter().enumerate() {
+                if bars.len() >= MAX_BARS {
+                    return;
+                }
+                let mut points = Vec::with_capacity(4);
+                if i == 0 && legs.0 != 0.0 {
+                    let p = a + dir * from;
+                    points.push(p.extend(z(p) + legs.0));
+                }
+                let p0 = a + dir * from;
+                let p1 = a + dir * to;
+                points.push(p0.extend(z(p0)));
+                points.push(p1.extend(z(p1)));
+                if i == last && legs.1 != 0.0 {
+                    points.push(p1.extend(z(p1) + legs.1));
+                }
+                bars.push(Bar::new(points, false));
             }
-            points.push((a + dir * from).extend(z));
-            points.push((a + dir * to).extend(z));
-            if i == last && legs.1 != 0.0 {
-                points.push((a + dir * to).extend(z + legs.1));
-            }
-            bars.push(Bar::new(points, false));
-        }
-    };
+        };
     match r.layout {
         RebarLayout::SlabStraight { top, angle_deg, spacing, inner, hook } => {
-            let z = height(top, inner);
             let dir = DVec2::from_angle(angle_deg.to_radians());
             let across = dir.perp();
             let middle = slab.middle();
@@ -319,12 +341,12 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
                 let origin = middle + across * (k as f64 * spacing);
                 for s in region.stretches(origin, dir) {
                     let legs = (if s.edge.0 { leg } else { 0.0 }, if s.edge.1 { leg } else { 0.0 });
-                    straight(&mut bars, origin + dir * s.from, origin + dir * s.to, z, index, legs);
+                    let z = |p| height(p, top, inner);
+                    straight(&mut bars, origin + dir * s.from, origin + dir * s.to, &z, index, legs);
                 }
             }
         }
         RebarLayout::SlabRing { top, spacing, center, inner } => {
-            let z = height(top, inner);
             let center = center.unwrap_or_else(|| slab.middle());
             let far = slab.outline.iter().map(|p| p.distance(center)).fold(0.0, f64::max);
             let count = ((far / spacing).floor() as usize).min(MAX_LINES);
@@ -357,7 +379,8 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
                         let steps = if closed { n.saturating_sub(1) } else { n };
                         let points: Vec<DVec3> = (0..=steps)
                             .map(|i| {
-                                (center + DVec2::from_angle(a0 + (a1 - a0) * i as f64 / n as f64) * radius).extend(z)
+                                let p = center + DVec2::from_angle(a0 + (a1 - a0) * i as f64 / n as f64) * radius;
+                                p.extend(height(p, top, inner))
                             })
                             .collect();
                         bars.push(Bar { true_length: Some(to - from), ..Bar::new(points, closed) });
@@ -366,7 +389,6 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
             }
         }
         RebarLayout::SlabRadial { top, count, center, start, intermediate, inner } => {
-            let z = height(top, inner);
             let center = center.unwrap_or_else(|| slab.middle());
             let step = TAU / count as f64;
             let mut index = 0;
@@ -380,7 +402,8 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
                     for s in region.stretches(center, dir) {
                         let a = s.from.max(from);
                         if s.to > a {
-                            straight(&mut bars, center + dir * a, center + dir * s.to, z, index, (0.0, 0.0));
+                            let z = |p| height(p, top, inner);
+                            straight(&mut bars, center + dir * a, center + dir * s.to, &z, index, (0.0, 0.0));
                         }
                     }
                     index += 1;
@@ -388,7 +411,6 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
             }
         }
         RebarLayout::SlabTrim { top, count, spacing, anchorage, diagonals } => {
-            let z = height(top, true);
             for hole in slab.holes.iter().take(MAX_LINES) {
                 let lo = hole.iter().fold(DVec2::INFINITY, |m, p| m.min(*p));
                 let hi = hole.iter().fold(DVec2::NEG_INFINITY, |m, p| m.max(*p));
@@ -407,7 +429,8 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
                         for s in region.stretches(origin, dir) {
                             let (from, to) = (s.from.max(a), s.to.min(b));
                             if to > from {
-                                straight(&mut bars, origin + dir * from, origin + dir * to, z, 0, (0.0, 0.0));
+                                let z = |p| height(p, top, true);
+                                straight(&mut bars, origin + dir * from, origin + dir * to, &z, 0, (0.0, 0.0));
                             }
                         }
                     }
@@ -420,7 +443,8 @@ pub(crate) fn slab_bars(slab: &Slab, r: &Rebar, d: f64, other: f64) -> Vec<Bar> 
                         for s in region.stretches(origin, dir) {
                             let (from, to) = (s.from.max(-anchorage), s.to.min(anchorage));
                             if to > from {
-                                straight(&mut bars, origin + dir * from, origin + dir * to, z, 0, (0.0, 0.0));
+                                let z = |p| height(p, top, true);
+                                straight(&mut bars, origin + dir * from, origin + dir * to, &z, 0, (0.0, 0.0));
                             }
                         }
                     }
@@ -439,13 +463,28 @@ mod tests {
     fn disc(radius: f64) -> Slab {
         let n = 120;
         let outline = (0..n).map(|i| DVec2::from_angle(i as f64 / n as f64 * TAU) * radius).collect();
-        Slab { outline, holes: Vec::new(), circles: vec![(DVec2::ZERO, radius)], z: (0.0, 0.2) }
+        Slab {
+            outline,
+            holes: Vec::new(),
+            circles: vec![(DVec2::ZERO, radius)],
+            z: (0.0, 0.2),
+            plane: (DVec2::ZERO, DVec2::ZERO),
+        }
     }
 
     fn square(side: f64) -> Slab {
         let h = side / 2.0;
         let outline = vec![DVec2::new(-h, -h), DVec2::new(h, -h), DVec2::new(h, h), DVec2::new(-h, h)];
-        Slab { outline, holes: Vec::new(), circles: Vec::new(), z: (0.0, 0.2) }
+        Slab { outline, holes: Vec::new(), circles: Vec::new(), z: (0.0, 0.2), plane: (DVec2::ZERO, DVec2::ZERO) }
+    }
+
+    #[test]
+    fn reinforcement_layers_follow_the_slab_plane() {
+        let mut slab = square(4.0);
+        slab.plane = (DVec2::ZERO, DVec2::new(0.1, 0.0));
+        let a = slab.layer_height(DVec2::ZERO, true, 0.03);
+        let b = slab.layer_height(DVec2::new(4.0, 0.0), true, 0.03);
+        assert!((b - a - 0.4).abs() < 1e-12);
     }
 
     #[test]

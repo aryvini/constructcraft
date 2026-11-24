@@ -269,6 +269,10 @@ Curtain walls are walls of a curtain type (a project without one gets one from t
 - **Edit Profile** (*Modify → Sketch*, with one sweep selected, or the button in its type's *Edit Type…*) opens the type's profile in a sketch that takes the place of the views: its plane has x across (outward, to the left of the path) and y up from the path, the path's point marked where the axes cross. The sketch has the usual ribbon, drawing and Modify tools, grips and undo; points snap to the sketch's own points, the path's point, the axes and millimeters. *Finish* redraws the profile of every sweep of the type in one undo step (an open or crossing outline is refused and shown), *Cancel* leaves it as it was. The type keeps the curves, so a cove's arc is still an arc when the profile is edited again; changing the profile's points another way drops them.
 - **Views**: plans and ceiling plans draw what the cut plane cuts and what lies below (or above, in ceiling plans), elevations, sections and 3D views show the solid, legends show the profile's section, and schedules list the length and volume. IFC export writes them as coverings of type `MOLDING`.
 
+## Floor slopes
+
+Select a floor and use **Direction** and **Slope** in its properties. The direction is the chosen boundary edge from its start to its end. A positive slope rises in that direction; a negative slope falls. The height offset remains the top elevation at the edge's start. The allowed rise/run is -1 to 1.
+
 ## Wall profiles
 
 A straight wall's face can be drawn in its own elevation, so its base and top need not be level: a top that follows sloping ground, a stepped base, a gable end, an arched top.

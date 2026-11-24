@@ -25,7 +25,12 @@ fn element_is_valid(e: &Element) -> bool {
     match &e.kind {
         ElementKind::Wall(w) => finite(&[w.base_offset, w.height]) && finite_points(&[w.start, w.end]) && top_ok(w.top),
         ElementKind::Door(h) | ElementKind::Window(h) | ElementKind::Niche(h) => finite(&[h.offset, h.sill_height]),
-        ElementKind::Floor(f) => f.height_offset.is_finite() && f.boundary.len() >= 3 && finite_points(&f.boundary),
+        ElementKind::Floor(f) => {
+            f.height_offset.is_finite()
+                && f.boundary.len() >= 3
+                && finite_points(&f.boundary)
+                && f.slope.is_none_or(|slope| slope.plane(&f.boundary).is_some())
+        }
         ElementKind::Ceiling(c) => c.height_offset.is_finite() && c.boundary.len() >= 3 && finite_points(&c.boundary),
         ElementKind::Roof(r) => {
             let shape = match r.shape {
@@ -458,6 +463,16 @@ impl Project {
         for e in self.elements.values_mut() {
             if let ElementKind::Sweep(s) = &mut e.kind {
                 repairs += s.repair();
+            }
+        }
+
+        // A floor slope that no longer names a usable boundary edge is no longer defined.
+        for e in self.elements.values_mut() {
+            if let ElementKind::Floor(f) = &mut e.kind
+                && f.slope.is_some_and(|slope| slope.plane(&f.boundary).is_none())
+            {
+                f.slope = None;
+                repairs += 1;
             }
         }
 

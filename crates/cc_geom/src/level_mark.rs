@@ -66,7 +66,7 @@ fn floors_at(project: &Project, level: Option<LevelId>, p: DVec2) -> impl Iterat
         if !polygon::contains(&f.boundary, p) || f.all_openings().any(|o| polygon::contains(o, p)) {
             return None;
         }
-        let top = project.level_elevation(e.level) + f.height_offset;
+        let top = project.level_elevation(e.level) + f.height_at(p)?;
         let finish = project.element_type(e.type_id).map_or(0.0, |t| t.core_range().0);
         top.is_finite().then_some((top, (finish > 1e-9).then_some(top - finish)))
     })
@@ -128,6 +128,17 @@ mod tests {
         // No levels in legends.
         let legend = View::new(ViewId(1), "L", 50, ViewKind::Legend { types: Vec::new() });
         assert!(levels(&p, &legend, &LevelMark::new(legend.id, DVec2::ZERO)).is_none());
+    }
+
+    #[test]
+    fn plans_measure_a_floor_with_negative_slope() {
+        let (mut p, level, view, _) = project();
+        let floor = p.elements.get_mut(&ElementId(9999)).unwrap();
+        let ElementKind::Floor(floor) = &mut floor.kind else { panic!("floor") };
+        floor.slope = Some(cc_core::FloorSlope { edge: 0, ratio: -0.1 });
+        let mark = LevelMark::new(view.id, DVec2::new(2.0, 1.0));
+        let m = levels(&p, &view, &mark).unwrap();
+        assert!((m.finished - (p.level_elevation(level) - 0.05)).abs() < 1e-9, "{m:?}");
     }
 
     #[test]

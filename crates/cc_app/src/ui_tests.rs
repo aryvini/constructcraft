@@ -7324,6 +7324,40 @@ fn wall_palette_harness(state: AppState) -> Harness<'static, AppState> {
     })
 }
 
+#[test]
+fn floor_slope_accepts_negative_values_in_properties() {
+    let mut state = sample_state();
+    let level = state.project().levels[0].id.0;
+    let floor = cc_core::ElementId(
+        state
+            .session
+            .execute(
+                "floor_create",
+                serde_json::json!({"level": level, "boundary": [[100,100],[106,100],[106,104],[100,104]], "slope": {"edge": 0, "ratio": 0.25}}),
+            )
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap(),
+    );
+    state.selection = [floor].into_iter().collect();
+    let displayed = cc_views::format::slope(0.25);
+    let mut harness = wall_palette_harness(state);
+    harness.run();
+    harness
+        .query_all_by_role(Role::SpinButton)
+        .find(|n| n.value().as_deref() == Some(displayed.as_str()))
+        .unwrap()
+        .focus();
+    harness.run();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.query_all_by_role(Role::SpinButton).find(|n| n.is_focused()).unwrap().type_text("-25%");
+    harness.key_press(egui::Key::Enter);
+    harness.run();
+    let element = harness.state().project().element(floor).unwrap();
+    let cc_core::ElementKind::Floor(floor) = &element.kind else { panic!("floor") };
+    assert!((floor.slope.unwrap().ratio + 0.25).abs() < 1e-9);
+}
+
 /// Issue #306: *Edit Profile* takes one straight wall; an arc wall says why
 /// not (and its palette has no Profile section), and *Reset Profile* needs a
 /// profile.

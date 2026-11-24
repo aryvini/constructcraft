@@ -590,7 +590,7 @@ No parameters.
 
 ### `floor_create`
 
-*edit* — Create a floor slab from an outline (or the loop of walls).
+*edit* — Parameters shared by floors, ceilings and roofs.
 
 | Parameter | Type | | Description |
 |---|---|---|---|
@@ -598,8 +598,9 @@ No parameters.
 | `curves` | [JSON, …] | optional | The outline drawn with curves (lines, arcs, circles, ellipses, rectangles, polygons) instead of `boundary`; loops inside the outline are openings (floors and roofs). The element keeps the curves (see `sketch_get`). |
 | `from_walls` | boolean | optional | Follow the outer boundary of the walls of the level, leaving interior walls out (exterior faces; interior faces for ceilings). |
 | `level` | id or name | optional | Level id or name (default: the lowest level). |
-| `offset` | number | optional | Floors: top above the level (default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
+| `offset` | number | optional | Floors: top above the level (at the slope edge's start, if sloped; default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
 | `openings` | [[[x, y], …], …] | optional | Openings through the slab (shafts, stairwells): closed outlines inside the boundary, apart from each other. |
+| `slope` | object | optional | Optional planar slope: a zero-based boundary `edge` and signed rise/run `ratio` (-1 to 1). A negative ratio falls from the edge's start to its end; `height_offset` is the elevation at its start. |
 | `structural` | boolean | optional | A structural slab, one that takes reinforcement (default false). |
 | `type` | id or name | optional | Type id or name (default: the category's default type). |
 | `wall_face` | string | optional | With `from_walls`: the face of each wall the outline follows, `FinishExterior`, `FinishInterior`, `CoreExterior`, `CoreInterior`, `CoreCenter` or `Centerline`, where exterior is the side outside the loop of walls and the core is a wall's structure layers. Each side goes to that face of its own wall. Without it the outline is the walls' boundary moved out (in, for ceilings) by half the thickest wall. |
@@ -632,7 +633,7 @@ No parameters.
 | `curves` | [JSON, …] | optional | The outline drawn with curves (lines, arcs, circles, ellipses, rectangles, polygons) instead of `boundary`; loops inside the outline are openings (floors and roofs). The element keeps the curves (see `sketch_get`). |
 | `from_walls` | boolean | optional | Follow the outer boundary of the walls of the level, leaving interior walls out (exterior faces; interior faces for ceilings). |
 | `level` | id or name | optional | Level id or name (default: the lowest level). |
-| `offset` | number | optional | Floors: top above the level (default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
+| `offset` | number | optional | Floors: top above the level (at the slope edge's start, if sloped; default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
 | `type` | id or name | optional | Type id or name (default: the category's default type). |
 | `wall_face` | string | optional | With `from_walls`: the face of each wall the outline follows, `FinishExterior`, `FinishInterior`, `CoreExterior`, `CoreInterior`, `CoreCenter` or `Centerline`, where exterior is the side outside the loop of walls and the core is a wall's structure layers. Each side goes to that face of its own wall. Without it the outline is the walls' boundary moved out (in, for ceilings) by half the thickest wall. |
 
@@ -647,7 +648,7 @@ No parameters.
 | `from_walls` | boolean | optional | Follow the outer boundary of the walls of the level, leaving interior walls out (exterior faces; interior faces for ceilings). |
 | `holes` | [[[x, y], …], …] | optional | Openings through the roof (courtyards): closed outlines inside the boundary, apart from each other. Pitched roofs slope down to their eaves too. |
 | `level` | id or name | optional | Level id or name (default: the lowest level). |
-| `offset` | number | optional | Floors: top above the level (default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
+| `offset` | number | optional | Floors: top above the level (at the slope edge's start, if sloped; default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
 | `overhang` | number | optional | Overhang beyond the outline, meters (default 0.5). |
 | `type` | id or name | optional | Type id or name (default: the category's default type). |
 | `wall_face` | string | optional | With `from_walls`: the face of each wall the outline follows, `FinishExterior`, `FinishInterior`, `CoreExterior`, `CoreInterior`, `CoreCenter` or `Centerline`, where exterior is the side outside the loop of walls and the core is a wall's structure layers. Each side goes to that face of its own wall. Without it the outline is the walls' boundary moved out (in, for ceilings) by half the thickest wall. |
@@ -1174,7 +1175,7 @@ No parameters.
 | `curves` | [JSON, …] | optional | The outline drawn with curves (lines, arcs, circles, ellipses, rectangles, polygons) instead of `boundary`; loops inside the outline are openings (floors and roofs). The element keeps the curves (see `sketch_get`). |
 | `from_walls` | boolean | optional | Follow the outer boundary of the walls of the level, leaving interior walls out (exterior faces; interior faces for ceilings). |
 | `level` | id or name | optional | Level id or name (default: the lowest level). |
-| `offset` | number | optional | Floors: top above the level (default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
+| `offset` | number | optional | Floors: top above the level (at the slope edge's start, if sloped; default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in imperial projects). Roofs: base above the level (default: top of the tallest wall). |
 | `type` | id or name | optional | Type id or name (default: the category's default type). |
 | `wall_face` | string | optional | With `from_walls`: the face of each wall the outline follows, `FinishExterior`, `FinishInterior`, `CoreExterior`, `CoreInterior`, `CoreCenter` or `Centerline`, where exterior is the side outside the loop of walls and the core is a wall's structure layers. Each side goes to that face of its own wall. Without it the outline is the walls' boundary moved out (in, for ceilings) by half the thickest wall. |
 

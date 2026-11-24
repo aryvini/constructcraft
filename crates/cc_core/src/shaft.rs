@@ -112,7 +112,12 @@ impl Project {
         let level = self.level_elevation(element.level);
         let thk = self.element_type(element.type_id).map_or(0.0, |t| t.thickness());
         match &element.kind {
-            ElementKind::Floor(f) => Some((level + f.height_offset - thk, level + f.height_offset)),
+            ElementKind::Floor(f) => {
+                let elevations: Vec<f64> = f.boundary.iter().map(|p| f.height_at(*p)).collect::<Option<_>>()?;
+                let low = elevations.iter().copied().fold(f64::INFINITY, f64::min);
+                let high = elevations.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                Some((level + low - thk * f.thickness_factor(), level + high))
+            }
             ElementKind::Ceiling(c) => Some((level + c.height_offset, level + c.height_offset + thk)),
             ElementKind::Roof(r) => Some((level + r.base_offset, f64::INFINITY)),
             _ => None,

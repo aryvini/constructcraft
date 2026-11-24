@@ -2218,6 +2218,78 @@ fn floor_openings() {
     assert_eq!(fails(&mut s, "element_set", across), ErrorCode::InvalidArguments);
 }
 
+/// A floor rises along its directed reference edge and keeps its normal thickness.
+#[test]
+fn floors_slope_along_a_reference_edge() {
+    let mut s = Session::default();
+    let boundary = json!([[0, 0], [10, 0], [10, 6], [0, 6]]);
+    let openings = json!([[[1, 1], [3, 1], [3, 3], [1, 3]]]);
+    let flat = run(&mut s, "floor_create", json!({"boundary": boundary, "offset": 0.2, "openings": openings}));
+    let sloped = run(
+        &mut s,
+        "floor_create",
+        json!({"boundary": boundary, "offset": 0.2, "openings": openings, "slope": {"edge": 0, "ratio": 0.2}}),
+    );
+    assert_eq!(sloped["params"]["slope"], json!({"edge": 0, "ratio": 0.2}));
+    assert!(
+        (sloped["derived"]["volume"].as_f64().unwrap() / flat["derived"]["volume"].as_f64().unwrap() - 1.04_f64.sqrt())
+            .abs()
+            < 1e-8
+    );
+
+    let updated = run(&mut s, "element_set", json!({"id": id(&flat), "params": {"slope": {"edge": 0, "ratio": 0.2}}}));
+    assert_eq!(updated["params"]["slope"], json!({"edge": 0, "ratio": 0.2}));
+    let descending = run(
+        &mut s,
+        "floor_create",
+        json!({"boundary": boundary, "offset": 2.2, "openings": openings, "slope": {"edge": 0, "ratio": -0.2}}),
+    );
+    assert_eq!(descending["params"]["slope"], json!({"edge": 0, "ratio": -0.2}));
+    assert!(
+        (descending["derived"]["volume"].as_f64().unwrap() - sloped["derived"]["volume"].as_f64().unwrap()).abs()
+            < 1e-8
+    );
+    let updated = run(&mut s, "element_set", json!({"id": id(&flat), "params": {"slope": {"edge": 0, "ratio": -1.0}}}));
+    assert_eq!(updated["params"]["slope"], json!({"edge": 0, "ratio": -1.0}));
+    assert_eq!(
+        fails(&mut s, "floor_create", json!({"boundary": boundary, "slope": {"edge": 4, "ratio": 0.2}}),),
+        ErrorCode::InvalidArguments
+    );
+    assert_eq!(
+        fails(&mut s, "floor_create", json!({"boundary": boundary, "slope": {"edge": 0, "ratio": 1.1}}),),
+        ErrorCode::InvalidArguments
+    );
+    assert_eq!(
+        fails(&mut s, "floor_create", json!({"boundary": boundary, "slope": {"edge": 0, "ratio": -1.1}}),),
+        ErrorCode::InvalidArguments
+    );
+    assert_eq!(
+        fails(&mut s, "element_set", json!({"id": id(&flat), "params": {"slope": {"edge": 0, "ratio": 1.1}}}),),
+        ErrorCode::Rejected
+    );
+    assert_eq!(
+        fails(&mut s, "element_set", json!({"id": id(&flat), "params": {"slope": {"edge": 0, "ratio": -1.1}}}),),
+        ErrorCode::Rejected
+    );
+
+    let project = scratch("sloped-floor.ccad");
+    run(&mut s, "project_save", json!({"path": project}));
+    let mut reopened = Session::default();
+    run(&mut reopened, "project_open", json!({"path": project}));
+    assert_eq!(
+        run(&mut reopened, "element_get", json!({"id": id(&sloped)}))["params"]["slope"],
+        json!({"edge": 0, "ratio": 0.2})
+    );
+    assert_eq!(
+        run(&mut reopened, "element_get", json!({"id": id(&descending)}))["params"]["slope"],
+        json!({"edge": 0, "ratio": -0.2})
+    );
+    let path = scratch("sloped-floor.ifc");
+    run(&mut s, "ifc_export", json!({"path": path}));
+    let ifc = std::fs::read_to_string(path).unwrap();
+    assert!(ifc.contains("IFCFACETEDBREP"), "sloped floors use their computed B-rep");
+}
+
 /// A slope per edge: a hip roof with a gable end, a steeper eave; one
 /// opening removed at a time.
 #[test]

@@ -1389,7 +1389,15 @@ impl ModelGeometry {
             let mut s = Solid::of_material(e.id, e.category(), project, ty.main_material());
             match &e.kind {
                 ElementKind::Floor(f) => {
-                    let top = level_z + f.height_offset;
+                    let (origin, gradient) = match f.slope {
+                        Some(slope) => {
+                            let Some(plane) = slope.plane(&f.boundary) else { continue };
+                            plane
+                        }
+                        None => (DVec2::ZERO, DVec2::ZERO),
+                    };
+                    let top = |p: DVec2| level_z + f.height_offset + gradient.dot(p - origin);
+                    let bottom = |p: DVec2| top(p) - thk * (1.0 + gradient.length_squared()).sqrt();
                     // Openings clockwise inside the counter-clockwise boundary.
                     let holes: Vec<Vec<DVec2>> = f
                         .all_openings()
@@ -1401,12 +1409,12 @@ impl ModelGeometry {
                         .filter(|o| o.len() >= 3)
                         .collect();
                     if holes.is_empty() {
-                        s.add_prism(&f.boundary, |_| top - thk, |_| top);
+                        s.add_prism(&f.boundary, bottom, top);
                     } else {
-                        s.add_prism_with_holes(&polygon::ccw(&f.boundary), &holes, |_| top - thk, |_| top);
+                        s.add_prism_with_holes(&polygon::ccw(&f.boundary), &holes, bottom, top);
                     }
                     if f.sketch.as_ref().is_some_and(|k| k.is_curved()) {
-                        self.curved_volumes.insert(e.id, f.area() * thk);
+                        self.curved_volumes.insert(e.id, f.area() * thk * (1.0 + gradient.length_squared()).sqrt());
                     }
                 }
                 ElementKind::Ceiling(c) => {
@@ -1911,6 +1919,51 @@ mod tests {
             let got = g.volume(*id);
             assert!((got - want).abs() < 1e-9, "{id}: {got} vs {want}");
         }
+    }
+
+    #[test]
+    fn sloped_floor_has_a_planar_top_and_normal_thickness() {
+        let mut doc = sample_house();
+        let floor = doc.project.elements.values().find(|e| e.category() == Category::Floor).unwrap().id;
+        let flat_volume = ModelGeometry::build(&doc.project).volume(floor);
+        doc.edit("slope", |e| {
+            if let Some(ElementKind::Floor(f)) = e.element_mut(floor).map(|x| &mut x.kind) {
+                f.slope = Some(cc_core::FloorSlope { edge: 0, ratio: 0.25 });
+            }
+        });
+        let e = doc.project.element(floor).unwrap();
+        let ElementKind::Floor(f) = &e.kind else { panic!("floor") };
+        assert!((f.height_at(DVec2::ZERO).unwrap() - 0.0).abs() < 1e-12);
+        assert!((f.height_at(DVec2::new(8.0, 0.0)).unwrap() - 2.0).abs() < 1e-12);
+        let g = ModelGeometry::build(&doc.project);
+        assert!((g.volume(floor) / flat_volume - (1.0_f64 + 0.25 * 0.25).sqrt()).abs() < 1e-9);
+        let solid = g.solids.iter().find(|s| s.element == floor && s.category == Category::Floor).unwrap();
+        let top = solid.faces.iter().find(|face| face.normal.z > 0.9).unwrap();
+        assert!((top.normal.x + 0.25 / (1.0_f64 + 0.25 * 0.25).sqrt()).abs() < 1e-9);
+        let highest = top.verts.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max);
+        assert!((highest - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn negative_floor_slope_descends_along_the_reference_edge() {
+        let mut doc = sample_house();
+        let floor = doc.project.elements.values().find(|e| e.category() == Category::Floor).unwrap().id;
+        let flat_volume = ModelGeometry::build(&doc.project).volume(floor);
+        doc.edit("slope", |e| {
+            if let Some(ElementKind::Floor(f)) = e.element_mut(floor).map(|x| &mut x.kind) {
+                f.height_offset = 2.0;
+                f.slope = Some(cc_core::FloorSlope { edge: 0, ratio: -0.25 });
+            }
+        });
+        let e = doc.project.element(floor).unwrap();
+        let ElementKind::Floor(f) = &e.kind else { panic!("floor") };
+        assert!((f.height_at(DVec2::ZERO).unwrap() - 2.0).abs() < 1e-12);
+        assert!(f.height_at(DVec2::new(8.0, 0.0)).unwrap().abs() < 1e-12);
+        let geom = ModelGeometry::build(&doc.project);
+        assert!((geom.volume(floor) / flat_volume - (1.0_f64 + 0.25 * 0.25).sqrt()).abs() < 1e-9);
+        let solid = geom.solids.iter().find(|s| s.element == floor && s.category == Category::Floor).unwrap();
+        let top = solid.faces.iter().find(|face| face.normal.z > 0.9).unwrap();
+        assert!((top.normal.x - 0.25 / (1.0_f64 + 0.25 * 0.25).sqrt()).abs() < 1e-9);
     }
 
     #[test]

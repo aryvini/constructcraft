@@ -269,6 +269,10 @@ Cortinas de vidro são paredes de um tipo cortina (um projeto sem tipo cortina g
 - **Editar perfil** (*Modificar → Esboço*, com um perfil varrido selecionado, ou o botão em *Editar tipo…* do seu tipo) abre o perfil do tipo num esboço que ocupa o lugar das vistas: no seu plano, x é a transversal (para fora, à esquerda do caminho) e y sobe a partir do caminho, com o ponto do caminho marcado onde os eixos se cruzam. O esboço tem o ribbon de sempre, as ferramentas de desenho e de modificação, as alças e o desfazer; os pontos se prendem aos pontos do próprio esboço, ao ponto do caminho, aos eixos e aos milímetros. *Concluir* redesenha o perfil de todos os perfis varridos do tipo num só passo de desfazer (um contorno aberto ou que se cruza é recusado e mostrado), *Cancelar* o deixa como estava. O tipo guarda as curvas, então o arco de uma meia-cana continua arco ao editar o perfil de novo; mudar os pontos do perfil de outro jeito as descarta.
 - **Vistas**: plantas e plantas de forro desenham o que o plano de corte corta e o que fica abaixo (ou acima, nas plantas de forro), elevações, cortes e vistas 3D mostram o sólido, legendas mostram a seção do perfil e tabelas listam comprimento e volume. A exportação IFC os grava como revestimentos do tipo `MOLDING`.
 
+## Inclinação de pisos
+
+Selecione um piso e use **Direção** e **Inclinação** nas propriedades. A direção é a da aresta escolhida, do início ao fim. Uma inclinação positiva sobe nessa direção; uma negativa desce. O deslocamento de altura continua sendo a cota superior no início da aresta. A razão entre subida e percurso pode ir de -1 a 1.
+
 ## Perfis de parede
 
 A face de uma parede reta pode ser desenhada na sua própria elevação, de modo que a base e o topo não precisam ser nivelados: um topo que acompanha o terreno inclinado, uma base em degraus, uma empena, um topo em arco.

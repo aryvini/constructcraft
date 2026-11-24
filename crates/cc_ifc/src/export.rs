@@ -3464,6 +3464,13 @@ impl<'a> Exporter<'a> {
             return;
         }
 
+        if let ElementKind::Floor(f) = &e.kind
+            && f.slope.is_some()
+        {
+            self.write_sloped_floor(e, f, storey);
+            return;
+        }
+
         let (frame, profile, dir, depth, entity, kind) = match &e.kind {
             ElementKind::Floor(f) => {
                 let z = f.height_offset - thickness;
@@ -3672,6 +3679,41 @@ impl<'a> Exporter<'a> {
         if let TypeData::Roof { covering, framing, .. } = &ty.data {
             self.write_roof_framing(e, product, storey, level_z, *covering, framing);
         }
+    }
+
+    /// A floor with a planar slope as a B-rep of its computed solid.
+    fn write_sloped_floor(&mut self, e: &Element, f: &cc_core::Floor, storey: Id) {
+        let project = self.project;
+        let geom = self.geom;
+        let Some(ty) = project.element_type(e.type_id) else { return };
+        let level_z = project.level_elevation(e.level);
+        let faces: Vec<cc_geom::Face> = geom.body_of(e.id).flat_map(|s| s.faces.iter().cloned()).collect();
+        if faces.is_empty() {
+            return;
+        }
+        let placement = self.local_placement(Some(storey), Frame::at(DVec3::ZERO));
+        let body = self.faceted_brep(&faces, level_z);
+        let style = self.material_style(ty.main_material());
+        self.styled(body, style);
+        let shape = self.shape_of_type(vec![body], None, "Brep");
+        let mut attrs = self.element_args(e, placement, shape);
+        attrs.push(Value::Enum("FLOOR"));
+        let product = self.w.add("IFCSLAB", attrs);
+        self.products.insert(e.id, product);
+        self.register(e, product);
+
+        let thickness = ty.thickness();
+        self.layer_usage(e.type_id, product, "AXIS3", thickness);
+        self.quantities(
+            e,
+            "Qto_SlabBaseQuantities",
+            &[
+                ("Width", Quantity::Length(thickness)),
+                ("Perimeter", Quantity::Length(polygon::perimeter(&f.boundary))),
+                ("NetArea", Quantity::Area(f.area())),
+                ("NetVolume", Quantity::Volume(geom.volume(e.id))),
+            ],
+        );
     }
 
     /// A roof's join in [`ROOF_JOIN_PSET`]: the GlobalId of the roof it is

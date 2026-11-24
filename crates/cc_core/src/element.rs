@@ -673,8 +673,11 @@ pub struct Hosted {
 pub struct Floor {
     /// Boundary sketch (closed polygon, either winding).
     pub boundary: Vec<DVec2>,
-    /// Offset of the top face from the level elevation.
+    /// Offset of the top face at the start of its reference edge from the level elevation.
     pub height_offset: f64,
+    /// A planar slope parallel to one directed boundary edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slope: Option<FloorSlope>,
     /// Openings through the slab (shafts, stairwells): closed outlines
     /// inside the boundary, apart from each other.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -695,12 +698,27 @@ pub struct Floor {
 impl Floor {
     /// A floor over `boundary` with no openings.
     pub fn new(boundary: Vec<DVec2>, height_offset: f64) -> Self {
-        Self { boundary, height_offset, openings: Vec::new(), cuts: Vec::new(), sketch: None, structural: false }
+        Self {
+            boundary,
+            height_offset,
+            slope: None,
+            openings: Vec::new(),
+            cuts: Vec::new(),
+            sketch: None,
+            structural: false,
+        }
     }
 
-    /// Its openings and the shafts' cuts.
-    pub fn all_openings(&self) -> impl Iterator<Item = &Vec<DVec2>> {
-        self.openings.iter().chain(&self.cuts)
+    /// The elevation offset at `point`, relative to the floor's level.
+    pub fn height_at(&self, point: DVec2) -> Option<f64> {
+        let Some(slope) = self.slope else { return Some(self.height_offset) };
+        let (origin, gradient) = slope.plane(&self.boundary)?;
+        Some(self.height_offset + gradient.dot(point - origin))
+    }
+
+    /// The vertical factor that gives a slab its specified thickness normal to its plane.
+    pub fn thickness_factor(&self) -> f64 {
+        self.slope.map_or(1.0, |slope| (1.0 + slope.ratio * slope.ratio).sqrt())
     }
 
     /// Plan area: the boundary less its openings, exact along the arcs,
@@ -712,6 +730,35 @@ impl Floor {
             return (drawn - self.cuts.iter().map(|o| polygon_area(o)).sum::<f64>()).max(0.0);
         }
         (polygon_area(&self.boundary) - self.all_openings().map(|o| polygon_area(o)).sum::<f64>()).max(0.0)
+    }
+
+    /// Its openings and the shafts' cuts.
+    pub fn all_openings(&self) -> impl Iterator<Item = &Vec<DVec2>> {
+        self.openings.iter().chain(&self.cuts)
+    }
+}
+
+/// A floor slope, directed from `boundary[edge]` to the next boundary point.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FloorSlope {
+    /// Zero-based index of the reference boundary edge.
+    pub edge: usize,
+    /// Signed rise over run from the edge's start to its end (-1 to 1).
+    pub ratio: f64,
+}
+
+impl FloorSlope {
+    /// The reference point and elevation gradient, or `None` for invalid data.
+    pub fn plane(self, boundary: &[DVec2]) -> Option<(DVec2, DVec2)> {
+        if boundary.len() < 2 || !(self.ratio.is_finite() && (-1.0..=1.0).contains(&self.ratio)) {
+            return None;
+        }
+        let start = *boundary.get(self.edge)?;
+        let next = self.edge.checked_add(1)? % boundary.len();
+        let end = *boundary.get(next)?;
+        let direction = end - start;
+        (start.is_finite() && direction.is_finite() && direction.length() > 1e-9)
+            .then_some((start, direction.normalize_or_zero() * self.ratio))
     }
 }
 

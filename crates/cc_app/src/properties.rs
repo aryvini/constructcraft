@@ -1101,6 +1101,57 @@ fn element_props(ui: &mut Ui, state: &mut AppState, id: ElementId) {
                         f.height_offset = v;
                     }
                 });
+                let edges: Vec<(usize, String)> = (0..f.boundary.len())
+                    .filter_map(|i| {
+                        let (a, b) = (*f.boundary.get(i)?, *f.boundary.get((i + 1) % f.boundary.len())?);
+                        let length = a.distance(b);
+                        (length > 1e-9).then(|| {
+                            let name = t!("prop-roof-edge", "n" => i + 1, "length" => format::length(length));
+                            let direction = format!(
+                                "({}, {}) → ({}, {})",
+                                format::length(a.x),
+                                format::length(a.y),
+                                format::length(b.x),
+                                format::length(b.y),
+                            );
+                            (i, format!("{name}: {direction}"))
+                        })
+                    })
+                    .collect();
+                let default_edge = edges.first().map_or(0, |(i, _)| *i);
+                let mut edge = f.slope.map_or(default_edge, |slope| slope.edge);
+                let edge_label = edges.iter().find(|(i, _)| *i == edge).map_or_else(
+                    || t!("prop-roof-edge", "n" => edge.saturating_add(1), "length" => format::length(0.0)),
+                    |(_, label)| label.clone(),
+                );
+                row(ui, &t!("prop-direction"), |ui| {
+                    egui::ComboBox::from_id_salt(("floor-slope-edge", id.0)).selected_text(edge_label.clone()).show_ui(
+                        ui,
+                        |ui| {
+                            for (i, label) in &edges {
+                                ui.selectable_value(&mut edge, *i, label);
+                            }
+                        },
+                    );
+                });
+                if f.slope.map_or(default_edge != edge, |slope| slope.edge != edge) {
+                    let ratio = f.slope.map_or(0.0, |slope| slope.ratio);
+                    modify(state, id, "slope-edge", |e| {
+                        if let ElementKind::Floor(f) = &mut e.kind {
+                            f.slope = Some(cc_core::FloorSlope { edge, ratio });
+                        }
+                    });
+                }
+                let mut ratio = f.slope.map_or(0.0, |slope| slope.ratio);
+                let rs = row(ui, &t!("prop-slope"), |ui| ui.add(slope_drag(&mut ratio).range(-1.0..=1.0)));
+                if rs.changed() {
+                    modify(state, id, "slope", |e| {
+                        if let ElementKind::Floor(f) = &mut e.kind {
+                            f.slope = Some(cc_core::FloorSlope { edge, ratio });
+                        }
+                    });
+                }
+                finish(state, &rs);
             });
             section(ui, "dimensions", t!("section-dimensions"), |ui| {
                 readonly_row(ui, &field_label(cc_core::ScheduleField::Area), format::area(f.area()));

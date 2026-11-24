@@ -8,8 +8,8 @@ use crate::registry::{Command, CommandKind};
 use crate::session::Session;
 use crate::t;
 use cc_core::{
-    Beam, BeamLateral, BeamVertical, Category, Ceiling, Column, Component, ElementId, ElementKind, Floor, Grid, Hosted,
-    LevelId, LocationLine, Project, Railing, Roof, RoofShape, Room, Wall, WallTop,
+    Beam, BeamLateral, BeamVertical, Category, Ceiling, Column, Component, ElementId, ElementKind, Floor, FloorSlope,
+    Grid, Hosted, LevelId, LocationLine, Project, Railing, Roof, RoofShape, Room, Wall, WallTop,
 };
 use cc_geom::polygon;
 use glam::DVec2;
@@ -391,8 +391,8 @@ pub struct SketchArgs {
     /// Type id or name (default: the category's default type).
     #[serde(default, rename = "type")]
     pub type_ref: Option<Ref>,
-    /// Floors: top above the level (default 0). Ceilings: bottom above the level (default 2.6; 8'-0" in
-    /// imperial projects).
+    /// Floors: top above the level (at the slope edge's start, if sloped; default 0). Ceilings: bottom above the
+    /// level (default 2.6; 8'-0" in imperial projects).
     /// Roofs: base above the level (default: top of the tallest wall).
     #[serde(default)]
     pub offset: Option<f64>,
@@ -449,6 +449,21 @@ pub(crate) fn sketch(s: &Session, a: &SketchArgs, category: Category) -> Result<
 }
 
 /// Create a floor slab from an outline (or the loop of walls).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FloorSlopeArg {
+    /// Zero-based index of the reference boundary edge.
+    pub edge: usize,
+    /// Signed rise over run from the edge's start to its end (-1 to 1).
+    pub ratio: f64,
+}
+
+impl From<FloorSlopeArg> for FloorSlope {
+    fn from(value: FloorSlopeArg) -> Self {
+        Self { edge: value.edge, ratio: value.ratio }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Default)]
 pub struct FloorCreate {
     #[serde(flatten)]
@@ -460,6 +475,10 @@ pub struct FloorCreate {
     /// A structural slab, one that takes reinforcement (default false).
     #[serde(default)]
     pub structural: Option<bool>,
+    /// Optional planar slope: a zero-based boundary `edge` and signed rise/run `ratio` (-1 to 1).
+    /// A negative ratio falls from the edge's start to its end; `height_offset` is the elevation at its start.
+    #[serde(default)]
+    pub slope: Option<FloorSlopeArg>,
 }
 
 impl Command for FloorCreate {
@@ -471,6 +490,10 @@ impl Command for FloorCreate {
             return Err(EngineError::invalid("with curves, draw the openings as loops inside the outline"));
         }
         let mut floor = Floor::new(profile.outline, finite(self.sketch.offset.unwrap_or(0.0), "offset")?);
+        if self.slope.is_some_and(|slope| FloorSlope::from(slope).plane(&floor.boundary).is_none()) {
+            return Err(EngineError::invalid("slope needs a valid boundary edge and a ratio from -1 to 1"));
+        }
+        floor.slope = self.slope.map(FloorSlope::from);
         floor.openings = match drawn {
             Some(_) => profile.openings,
             None => self.openings.iter().map(|o| points(o)).collect::<Result<_>>()?,
